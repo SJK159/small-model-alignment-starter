@@ -26,16 +26,23 @@ BATCH_SIZE = 8
 
 
 def load_alpaca_eval_prompts(n: int = ALPACA_EVAL_N, seed: int = ALPACA_EVAL_SEED) -> list[dict]:
-    from datasets import load_dataset
+    """Load AlpacaEval prompts via HuggingFace Hub, sampling n with the given seed."""
+    from huggingface_hub import hf_hub_download
 
-    ds = load_dataset("tatsu-lab/alpaca_eval", "alpaca_eval", split="eval", trust_remote_code=True)
-    indices = list(range(len(ds)))
+    path = hf_hub_download(
+        repo_id="tatsu-lab/alpaca_eval", repo_type="dataset",
+        filename="alpaca_eval.json",
+    )
+    with open(path) as f:
+        all_rows = json.load(f)
+
+    indices = list(range(len(all_rows)))
     rng = random.Random(seed)
     rng.shuffle(indices)
     selected = sorted(indices[:n])
     prompts = []
     for idx in selected:
-        row = ds[idx]
+        row = all_rows[idx]
         prompts.append({
             "id": f"alpaca-eval-{seed}-{len(prompts):04d}",
             "instruction": row["instruction"],

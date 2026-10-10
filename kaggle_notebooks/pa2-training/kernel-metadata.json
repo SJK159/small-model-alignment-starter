@@ -1,0 +1,14 @@
+{
+  "id": "merc11123saad/pa2-sft-dpo-training",
+  "title": "PA2 SFT + DPO Training",
+  "code_file": "pa2-training.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "competition_sources": [],
+  "dataset_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}
