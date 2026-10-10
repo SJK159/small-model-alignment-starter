@@ -1,0 +1,14 @@
+{
+  "id": "merc11123saad/pa2-evaluation",
+  "title": "PA2 Evaluation (Model Judging)",
+  "code_file": "pa2-evaluation.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_internet": true,
+  "competition_sources": [],
+  "dataset_sources": [],
+  "kernel_sources": ["merc11123saad/pa2-sft-dpo-training"],
+  "model_sources": []
+}
