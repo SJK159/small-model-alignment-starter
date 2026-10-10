@@ -268,6 +268,7 @@ def main():
     policy_model = AutoModelForCausalLM.from_pretrained(
         args.sft_checkpoint, dtype=torch.float32, trust_remote_code=True,
     ).to(policy_device)
+    policy_model.gradient_checkpointing_enable()
     policy_model.train()
 
     print(f"Loading reference model from: {args.sft_checkpoint}")

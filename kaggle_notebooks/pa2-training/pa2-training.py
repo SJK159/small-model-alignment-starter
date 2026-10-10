@@ -181,6 +181,7 @@ else:
 # ══════════════════════════════════════════════════════════════════════════════
 # TASK 5: LoRA DPO Persona Training
 # ══════════════════════════════════════════════════════════════════════════════
+lora_env = {**ENV(), "CUDA_VISIBLE_DEVICES": "0"}
 lora_ok = run_task("TASK 5: LoRA DPO Persona", [
     sys.executable, "scripts/train_lora_dpo.py",
     "--output_dir", f"{OUTPUTS}/lora_dpo",
@@ -189,7 +190,7 @@ lora_ok = run_task("TASK 5: LoRA DPO Persona", [
     "--grad_accum", "4",
     "--lr", "5e-5",
     "--seed", "42",
-], env=ENV())
+], env=lora_env)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TASK 6: Generate Evaluation Outputs

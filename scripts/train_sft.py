@@ -164,6 +164,7 @@ def main():
     )
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
+    model.gradient_checkpointing_enable()
     model.train()
 
     # ── Load data ─────────────────────────────────────────────────────────────
@@ -180,7 +181,7 @@ def main():
         drop_last=True, num_workers=0,
     )
     val_loader = DataLoader(
-        val_dataset, batch_size=args.batch_size * 2, shuffle=False,
+        val_dataset, batch_size=args.batch_size, shuffle=False,
         collate_fn=lambda b: collate_fn(b, tokenizer, args.max_length),
         num_workers=0,
     )
