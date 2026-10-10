@@ -1,0 +1,171 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{float}
+
+\title{Instruction Tuning and Direct Preference Optimization\\on a Small Language Model}
+\author{Saad Jamshaid Khan}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+% ──────────────────────────────────────────────────────────────────────────────
+\section{Repository, Models, and Data}
+\label{sec:repo}
+
+\textbf{Repository:} \url{https://github.com/SJK159/small-model-alignment-starter}
+
+\textbf{Base model:} \texttt{Qwen/Qwen2.5-0.5B}
+
+\begin{table}[H]
+\centering
+\caption{Datasets and splits used for each training track.}
+\begin{tabular}{llrrl}
+\toprule
+\textbf{Track} & \textbf{Dataset} & \textbf{Train} & \textbf{Val} & \textbf{Eval Set} \\
+\midrule
+SFT & UltraChat 200k & 30{,}000 & 1{,}000 & --- \\
+HH-RLHF DPO & Anthropic HH-RLHF & 15{,}000 & 1{,}000 & hh\_rlhf\_eval\_300 \\
+UltraFeedback DPO & OpenBMB UltraFeedback & 15{,}000 & 1{,}000 & AlpacaEval 300 (seed 42) \\
+LoRA DPO & Ramsay persona & all & --- & Persona eval \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Random seed:} 42 for all runs. Single-turn examples only; multi-turn filtered out.
+
+% ──────────────────────────────────────────────────────────────────────────────
+\section{Experimental Configuration}
+\label{sec:config}
+
+\begin{table}[H]
+\centering
+\caption{Hyperparameters for each training track.}
+\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Parameter} & \textbf{SFT} & \textbf{HH-RLHF DPO} & \textbf{UF DPO} & \textbf{LoRA DPO} \\
+\midrule
+Strategy & Full FT & Full FT & Full FT & LoRA (r=16) \\
+Optimizer & AdamW & AdamW & AdamW & AdamW \\
+Peak LR & $2 \times 10^{-5}$ & $1 \times 10^{-6}$ & $1 \times 10^{-6}$ & $5 \times 10^{-5}$ \\
+Scheduler & Cosine & Fixed & Fixed & Linear \\
+Warmup & 3\% & None & None & Default \\
+Weight decay & 0.1 & 0.0 & 0.0 & 0.0 \\
+Batch (device) & 2 & 1 & 1 & 2 \\
+Grad accum & 16 & 32 & 32 & 4 \\
+Effective batch & 32 & 32 & 32 & 8 \\
+Max length & 512 & 512 & 512 & 512 \\
+Precision & fp16 AMP & fp16 AMP & fp16 AMP & fp16 \\
+Grad clip & 1.0 & 1.0 & 1.0 & --- \\
+$\beta$ (DPO) & --- & 0.1 & 0.1 & 0.1 \\
+Epochs & 1 & 1 & 1 & 3 \\
+Checkpoint & Best val loss & Best reward acc & Best reward acc & Per epoch \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{LoRA config:} rank=16, alpha=32, dropout=0.05, target modules: \texttt{q\_proj}, \texttt{v\_proj}. Model: \texttt{SmolLM2-360M-Instruct}.
+
+\textbf{Generation settings:} Greedy decoding (\texttt{do\_sample=False}), max 512 new tokens.
+
+% ──────────────────────────────────────────────────────────────────────────────
+\section{Parameter Choices and Deviations}
+\label{sec:deviations}
+
+% TODO: Fill in after training completes. For each deviation from the guide
+% configuration, state: guide value, your value, why, and what changed.
+
+\begin{table}[H]
+\centering
+\caption{Deviations from the guide configuration.}
+\begin{tabular}{llll}
+\toprule
+\textbf{Parameter} & \textbf{Guide} & \textbf{Ours} & \textbf{Reason} \\
+\midrule
+\multicolumn{4}{c}{\textit{(To be completed after training)}} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ──────────────────────────────────────────────────────────────────────────────
+\section{Training Behavior}
+\label{sec:training}
+
+% TODO: Add training plots after runs complete.
+% Include: SFT train/val loss, DPO loss + reward accuracy + reward margin
+
+\subsection{SFT Training}
+% \begin{figure}[H]
+% \centering
+% \includegraphics[width=0.8\textwidth]{figures/sft_loss.png}
+% \caption{SFT training and validation loss over optimizer steps.}
+% \end{figure}
+
+\subsection{DPO Training (HH-RLHF)}
+% \begin{figure}[H]
+% \centering
+% \includegraphics[width=0.8\textwidth]{figures/dpo_hh_rlhf_metrics.png}
+% \caption{HH-RLHF DPO: training loss, validation reward accuracy, and reward margin.}
+% \end{figure}
+
+\subsection{DPO Training (UltraFeedback)}
+% \begin{figure}[H]
+% \centering
+% \includegraphics[width=0.8\textwidth]{figures/dpo_ultrafeedback_metrics.png}
+% \caption{UltraFeedback DPO: training loss, validation reward accuracy, and reward margin.}
+% \end{figure}
+
+% ──────────────────────────────────────────────────────────────────────────────
+\section{DPO-versus-SFT Results}
+\label{sec:results}
+
+% TODO: Fill in after evaluation completes.
+
+\textbf{Judge model:} \texttt{google/gemini-3.6-flash} via Kaggle benchmarks.
+
+\begin{table}[H]
+\centering
+\caption{Pairwise evaluation: DPO vs.\ SFT (same generation settings, same prompts).}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Track} & \textbf{DPO Wins} & \textbf{SFT Wins} & \textbf{Ties} & \textbf{Failures} & \textbf{DPO Win Rate} \\
+\midrule
+HH-RLHF DPO & --- & --- & --- & --- & --- \\
+UltraFeedback DPO & --- & --- & --- & --- & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{LoRA Persona Results}
+% Report separately per the manual — style alignment is a different target.
+
+% ──────────────────────────────────────────────────────────────────────────────
+\section{Interpretation and Error Analysis}
+\label{sec:analysis}
+
+% TODO: After results:
+% - Which model won on each eval set, by how much, why?
+% - Connect to preference data, beta, training duration, reward diagnostics
+% - Include 2-3 representative examples (where DPO improved / regressed)
+% - Discuss: noisy pairs, over-optimization, strong SFT baseline, etc.
+
+% ──────────────────────────────────────────────────────────────────────────────
+\section{Limitations and Reproducibility}
+\label{sec:limitations}
+
+\begin{itemize}
+    \item Single seed (42) for all experiments; results may not generalize.
+    \item Judge model bias: \texttt{gemini-3.6-flash} may systematically prefer certain response styles.
+    \item Small evaluation sets (300 prompts each).
+    \item Kaggle T4 GPU memory constraints may have limited batch sizes.
+    \item Single-turn evaluation only.
+\end{itemize}
+
+\textbf{Reproducibility:} All code, configs, and metrics are in the GitHub repository. Training scripts log full hyperparameters to \texttt{config.json}. Metrics are saved as JSONL files after every evaluation step.
+
+\end{document}
