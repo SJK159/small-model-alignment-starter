@@ -20,7 +20,7 @@ import math
 import os
 
 import torch
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -266,13 +266,13 @@ def main():
     ref_device = torch.device("cuda:1" if torch.cuda.device_count() > 1 else policy_device)
 
     policy_model = AutoModelForCausalLM.from_pretrained(
-        args.sft_checkpoint, torch_dtype=torch.float32, trust_remote_code=True,
+        args.sft_checkpoint, dtype=torch.float32, trust_remote_code=True,
     ).to(policy_device)
     policy_model.train()
 
     print(f"Loading reference model from: {args.sft_checkpoint}")
     reference_model = AutoModelForCausalLM.from_pretrained(
-        args.sft_checkpoint, torch_dtype=torch.float16, trust_remote_code=True,
+        args.sft_checkpoint, dtype=torch.float16, trust_remote_code=True,
     ).to(ref_device)
     reference_model.eval()
     for p in reference_model.parameters():
@@ -303,7 +303,7 @@ def main():
     # ── Optimizer ─────────────────────────────────────────────────────────────
     total_steps = (len(train_loader) // args.grad_accum) * args.epochs
     optimizer = torch.optim.AdamW(policy_model.parameters(), lr=args.lr, weight_decay=0.0)
-    scaler = GradScaler()
+    scaler = GradScaler("cuda")
 
     print(f"Training DPO ({args.dataset}): {total_steps} optimizer steps, "
           f"effective batch {args.batch_size * args.grad_accum}, beta={args.beta}")
@@ -317,7 +317,7 @@ def main():
     for epoch in range(args.epochs):
         pbar = tqdm(enumerate(train_loader), total=len(train_loader), desc=f"Epoch {epoch+1}")
         for batch_idx, (chosen_batch, rejected_batch) in pbar:
-            with autocast(dtype=torch.float16):
+            with autocast("cuda", dtype=torch.float16):
                 pc = _response_logprobs_with_grad(policy_model, chosen_batch, policy_device)
                 pr = _response_logprobs_with_grad(policy_model, rejected_batch, policy_device)
 
@@ -327,7 +327,7 @@ def main():
 
             rc, rr = rc.to(policy_device), rr.to(policy_device)
 
-            with autocast(dtype=torch.float16):
+            with autocast("cuda", dtype=torch.float16):
                 loss = compute_dpo_loss_from_logps(pc, pr, rc, rr, args.beta)
                 loss = loss / args.grad_accum
 

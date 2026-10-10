@@ -13,7 +13,7 @@ import os
 import time
 
 import torch
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -111,7 +111,7 @@ def evaluate(model, val_loader, device):
         attention_mask = batch["attention_mask"].to(device)
         labels = batch["labels"].to(device)
 
-        with autocast(dtype=torch.float16):
+        with autocast("cuda", dtype=torch.float16):
             logits = model(input_ids=input_ids, attention_mask=attention_mask).logits
 
         shift_logits = logits[:, :-1, :].float()
@@ -160,7 +160,7 @@ def main():
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
     model = AutoModelForCausalLM.from_pretrained(
-        args.model_id, torch_dtype=torch.float32, trust_remote_code=True,
+        args.model_id, dtype=torch.float32, trust_remote_code=True,
     )
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model.to(device)
@@ -193,7 +193,7 @@ def main():
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay,
     )
     scheduler = get_cosine_schedule_with_warmup(optimizer, warmup_steps, total_steps)
-    scaler = GradScaler()
+    scaler = GradScaler("cuda")
 
     # ── Training loop ─────────────────────────────────────────────────────────
     print(f"Training: {total_steps} optimizer steps, {warmup_steps} warmup, "
@@ -211,7 +211,7 @@ def main():
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
 
-            with autocast(dtype=torch.float16):
+            with autocast("cuda", dtype=torch.float16):
                 logits = model(input_ids=input_ids, attention_mask=attention_mask).logits
                 shift_logits = logits[:, :-1, :].float()
                 shift_labels = labels[:, 1:]

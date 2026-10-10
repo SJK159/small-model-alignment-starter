@@ -105,7 +105,7 @@ def load_model_and_tokenizer(checkpoint_path, device="auto"):
     tokenizer.padding_side = "left"
 
     model = AutoModelForCausalLM.from_pretrained(
-        checkpoint_path, torch_dtype=torch.float16,
+        checkpoint_path, dtype=torch.float16,
         device_map=device, trust_remote_code=True,
     )
     return model, tokenizer

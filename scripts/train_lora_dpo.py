@@ -71,7 +71,7 @@ def main():
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
     model = AutoModelForCausalLM.from_pretrained(
-        args.model_id, torch_dtype=torch.float16, trust_remote_code=True,
+        args.model_id, dtype=torch.float16, trust_remote_code=True,
     )
 
     peft_config = LoraConfig(

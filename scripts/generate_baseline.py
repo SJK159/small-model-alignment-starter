@@ -28,7 +28,7 @@ BATCH_SIZE = 8
 def load_alpaca_eval_prompts(n: int = ALPACA_EVAL_N, seed: int = ALPACA_EVAL_SEED) -> list[dict]:
     from datasets import load_dataset
 
-    ds = load_dataset("tatsu-lab/alpaca_eval", "alpaca_eval", split="eval")
+    ds = load_dataset("tatsu-lab/alpaca_eval", "alpaca_eval", split="eval", trust_remote_code=True)
     indices = list(range(len(ds)))
     rng = random.Random(seed)
     rng.shuffle(indices)
@@ -125,7 +125,7 @@ def main():
 
     model = AutoModelForCausalLM.from_pretrained(
         args.model_id,
-        torch_dtype=torch.float16,
+        dtype=torch.float16,
         device_map="auto",
         trust_remote_code=True,
     )
