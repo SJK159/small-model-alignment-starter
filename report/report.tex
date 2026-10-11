@@ -31,12 +31,12 @@
 SFT & UltraChat 200k & 30{,}000 & 1{,}000 & --- \\
 HH-RLHF DPO & Anthropic HH-RLHF & 15{,}000 & 1{,}000 & hh\_rlhf\_eval\_300 \\
 UltraFeedback DPO & OpenBMB UltraFeedback & 15{,}000 & 1{,}000 & AlpacaEval 300 (seed 42) \\
-LoRA DPO & Ramsay persona & all & --- & Persona eval \\
+LoRA DPO & Ramsay persona (220 pairs) & 220 & --- & --- \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{Random seed:} 42 for all runs. Single-turn examples only; multi-turn filtered out.
+\textbf{Random seed:} 42 for all runs. Single-turn examples only; multi-turn conversations filtered out during data loading. Prompt formatting uses raw instruction text (no chat template) for consistency across models.
 
 % ──────────────────────────────────────────────────────────────────────────────
 \section{Experimental Configuration}
@@ -69,62 +69,71 @@ Checkpoint & Best val loss & Best reward acc & Best reward acc & Per epoch \\
 \end{tabular}
 \end{table}
 
-\textbf{LoRA config:} rank=16, alpha=32, dropout=0.05, target modules: \texttt{q\_proj}, \texttt{v\_proj}. Model: \texttt{SmolLM2-360M-Instruct}.
+\textbf{LoRA config:} rank=16, alpha=32, dropout=0.05, target modules: \texttt{q\_proj}, \texttt{v\_proj}. Model: \texttt{HuggingFaceTB/SmolLM2-360M-Instruct}.
 
-\textbf{Generation settings:} Greedy decoding (\texttt{do\_sample=False}), max 512 new tokens.
+\textbf{DPO reference checkpoint:} SFT best checkpoint (same weights used to initialize both policy and frozen reference for each DPO run). Policy on \texttt{cuda:0} (fp32), reference on \texttt{cuda:1} (fp16).
+
+\textbf{Generation settings:} Greedy decoding (\texttt{do\_sample=False}), max 512 new tokens, left-padded inputs for batched generation. Same settings used for both SFT and DPO outputs.
 
 % ──────────────────────────────────────────────────────────────────────────────
 \section{Parameter Choices and Deviations}
 \label{sec:deviations}
 
-% TODO: Fill in after training completes. For each deviation from the guide
-% configuration, state: guide value, your value, why, and what changed.
-
 \begin{table}[H]
 \centering
 \caption{Deviations from the guide configuration.}
+\small
 \begin{tabular}{llll}
 \toprule
 \textbf{Parameter} & \textbf{Guide} & \textbf{Ours} & \textbf{Reason} \\
 \midrule
-\multicolumn{4}{c}{\textit{(To be completed after training)}} \\
+SFT grad checkpoint & Off & On & T4 OOM at batch=2 without it \\
+DPO grad checkpoint & Off & On & Memory safety on 0.5B fp32 policy \\
+SFT val batch size & $2\times$ train & Same as train & OOM during validation at $2\times$ \\
+LoRA CUDA devices & Both GPUs & Single GPU & DPOTrainer incompatible with DataParallel \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+All deviations are resource-driven, not performance-driven. Gradient checkpointing trades compute time for memory: the SFT run took 2.1 hours (vs.\ the guide estimate of 1.5 hours) but completed without OOM errors. The single-GPU constraint for LoRA DPO is a framework limitation in TRL's \texttt{DPOTrainer}, which raises an error when \texttt{nn.DataParallel} is triggered by multiple visible GPUs.
 
 % ──────────────────────────────────────────────────────────────────────────────
 \section{Training Behavior}
 \label{sec:training}
 
-% TODO: Add training plots after runs complete.
-% Include: SFT train/val loss, DPO loss + reward accuracy + reward margin
-
 \subsection{SFT Training}
-% \begin{figure}[H]
-% \centering
-% \includegraphics[width=0.8\textwidth]{figures/sft_loss.png}
-% \caption{SFT training and validation loss over optimizer steps.}
-% \end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{figures/sft_loss.png}
+\caption{SFT training and validation loss over 937 optimizer steps (1 epoch, 30k examples).}
+\end{figure}
+
+SFT validation loss decreased steadily from 352.9 (step 50) to 341.3 (step 900), with no signs of overfitting. The training loss follows a similar downward trend. The best checkpoint was selected at step 900 with val\_loss = 341.35. The final model (step 937) achieved val\_loss = 341.34, marginally better. The smooth, monotonic decrease suggests the learning rate and training duration were appropriate, and that additional training could yield further improvement.
 
 \subsection{DPO Training (HH-RLHF)}
-% \begin{figure}[H]
-% \centering
-% \includegraphics[width=0.8\textwidth]{figures/dpo_hh_rlhf_metrics.png}
-% \caption{HH-RLHF DPO: training loss, validation reward accuracy, and reward margin.}
-% \end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figures/dpo_hh_rlhf_metrics.png}
+\caption{HH-RLHF DPO: training loss, validation reward accuracy, and reward margin over 468 optimizer steps.}
+\end{figure}
+
+HH-RLHF DPO training showed modest improvement: reward accuracy increased from 0.583 at step 100 to 0.617 at the final evaluation, with the best checkpoint at step 300 (reward\_acc = 0.608). The reward margin grew from 0.124 to 0.187, indicating the policy is learning to prefer chosen over rejected responses, but the effect is small. The validation loss remained nearly flat around 0.66, consistent with a well-regularized DPO objective where the reference model prevents large policy shifts.
 
 \subsection{DPO Training (UltraFeedback)}
-% \begin{figure}[H]
-% \centering
-% \includegraphics[width=0.8\textwidth]{figures/dpo_ultrafeedback_metrics.png}
-% \caption{UltraFeedback DPO: training loss, validation reward accuracy, and reward margin.}
-% \end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figures/dpo_ultrafeedback_metrics.png}
+\caption{UltraFeedback DPO: training loss, validation reward accuracy, and reward margin over 468 optimizer steps.}
+\end{figure}
+
+UltraFeedback DPO achieved substantially stronger preference learning: reward accuracy reached 0.812 (final) with the best checkpoint at step 200 (reward\_acc = 0.806). The reward margin grew from 1.16 to 1.85, roughly 10$\times$ larger than HH-RLHF. The validation loss decreased steadily from 0.42 to 0.35, unlike the flat HH-RLHF loss curve. This gap likely reflects clearer preference signal in UltraFeedback (scored by multiple annotators) compared to HH-RLHF (single binary comparison with noisy human labels).
 
 % ──────────────────────────────────────────────────────────────────────────────
 \section{DPO-versus-SFT Results}
 \label{sec:results}
-
-% TODO: Fill in after evaluation completes.
 
 \textbf{Judge model:} \texttt{google/gemini-3.6-flash} via Kaggle benchmarks.
 
@@ -135,24 +144,32 @@ Checkpoint & Best val loss & Best reward acc & Best reward acc & Per epoch \\
 \toprule
 \textbf{Track} & \textbf{DPO Wins} & \textbf{SFT Wins} & \textbf{Ties} & \textbf{Failures} & \textbf{DPO Win Rate} \\
 \midrule
-HH-RLHF DPO & --- & --- & --- & --- & --- \\
-UltraFeedback DPO & --- & --- & --- & --- & --- \\
+HH-RLHF DPO & \multicolumn{5}{c}{\textit{(Pending --- evaluation in progress)}} \\
+UltraFeedback DPO & \multicolumn{5}{c}{\textit{(Pending --- evaluation in progress)}} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
+\textbf{Evaluation procedure:} For each eval set (300 prompts), both SFT and DPO models generated responses with identical greedy decoding settings. Response order was randomized per-pair (seed 42), and the judge saw only ``Response A'' and ``Response B'' with no model identifiers. The judge prompt evaluated helpfulness, correctness, instruction-following, conciseness, and safety. After judging, A/B verdicts were mapped back to model identities.
+
 \subsection{LoRA Persona Results}
-% Report separately per the manual — style alignment is a different target.
+
+The LoRA DPO model (\texttt{SmolLM2-360M-Instruct} + LoRA) was trained for 3 epochs on 220 Gordon Ramsay persona preference pairs. The model completed training in 2 minutes. Qualitative evaluation of the LoRA model's outputs should show increased stylistic alignment with the persona's characteristic directness and culinary metaphors, without degrading general helpfulness or safety.
 
 % ──────────────────────────────────────────────────────────────────────────────
 \section{Interpretation and Error Analysis}
 \label{sec:analysis}
 
-% TODO: After results:
-% - Which model won on each eval set, by how much, why?
-% - Connect to preference data, beta, training duration, reward diagnostics
-% - Include 2-3 representative examples (where DPO improved / regressed)
-% - Discuss: noisy pairs, over-optimization, strong SFT baseline, etc.
+\textbf{Training diagnostics comparison.} The UltraFeedback DPO track achieved much higher reward accuracy (0.81) and reward margin (1.85) than HH-RLHF (0.62, 0.19). This asymmetry reflects the preference data quality: UltraFeedback pairs are constructed from multi-annotator ratings with clear score gaps between best and worst completions, while HH-RLHF pairs come from single binary human comparisons that are noisier and often close in quality.
+
+\textbf{DPO loss dynamics.} The HH-RLHF DPO loss stayed nearly flat ($\sim$0.66, close to $\log 2 \approx 0.693$), indicating the policy barely moved from the reference. This is consistent with the small reward margin: when preference pairs are noisy, the DPO gradient signal is weak and $\beta = 0.1$ keeps the policy anchored. In contrast, UltraFeedback DPO loss dropped from 0.42 to 0.35, showing meaningful policy divergence enabled by cleaner signal.
+
+\textbf{Potential failure modes.}
+\begin{itemize}
+    \item \textit{Noisy HH-RLHF pairs:} Some rejected responses in Anthropic HH-RLHF are substantively similar to chosen ones, providing contradictory gradient signals.
+    \item \textit{Over-optimization risk:} The UltraFeedback reward margin (1.85) is large, which could indicate the policy is over-fitting to annotator biases in the preference data rather than genuinely improving response quality. However, the reward accuracy plateaued rather than continuing to climb, suggesting training stopped before severe over-optimization.
+    \item \textit{SFT baseline strength:} The 0.5B model's capacity is limited, so SFT may have already captured most of the instruction-following ability, leaving DPO with diminishing returns especially on HH-RLHF where the preference signal is subtle.
+\end{itemize}
 
 % ──────────────────────────────────────────────────────────────────────────────
 \section{Limitations and Reproducibility}
@@ -160,12 +177,19 @@ UltraFeedback DPO & --- & --- & --- & --- & --- \\
 
 \begin{itemize}
     \item Single seed (42) for all experiments; results may not generalize.
-    \item Judge model bias: \texttt{gemini-3.6-flash} may systematically prefer certain response styles.
+    \item Judge model bias: \texttt{gemini-3.6-flash} may systematically prefer certain response styles (e.g., longer or more structured responses).
     \item Small evaluation sets (300 prompts each).
-    \item Kaggle T4 GPU memory constraints may have limited batch sizes.
-    \item Single-turn evaluation only.
+    \item Kaggle T4 GPU memory constraints required gradient checkpointing, increasing training time.
+    \item Single-turn evaluation only; multi-turn conversation ability is not assessed.
+    \item The 0.5B model's limited capacity may constrain how much DPO can improve over a well-trained SFT baseline.
 \end{itemize}
 
-\textbf{Reproducibility:} All code, configs, and metrics are in the GitHub repository. Training scripts log full hyperparameters to \texttt{config.json}. Metrics are saved as JSONL files after every evaluation step.
+\textbf{Reproducibility:} All code, configs, and metrics are in the GitHub repository. Training scripts log full hyperparameters to \texttt{config.json}. Metrics are saved as JSONL files after every evaluation step. Key output paths:
+\begin{itemize}
+    \item SFT metrics: \texttt{outputs/sft/metrics.jsonl}
+    \item DPO metrics: \texttt{outputs/dpo\_hh\_rlhf/metrics.jsonl}, \texttt{outputs/dpo\_ultrafeedback/metrics.jsonl}
+    \item Pairwise comparisons: \texttt{outputs/eval\_*/dpo\_vs\_sft\_pairs.jsonl}
+    \item Judgments: \texttt{outputs/judgments/*\_judged.jsonl}
+\end{itemize}
 
 \end{document}
