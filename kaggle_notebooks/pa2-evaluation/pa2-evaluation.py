@@ -38,8 +38,18 @@ print("=" * 60)
 subprocess.run([
     sys.executable, "-m", "pip", "install", "-q",
     "transformers>=4.43.0,<5", "datasets>=2.18,<5",
-    "huggingface_hub", "tqdm",
+    "huggingface_hub", "tqdm", "kaggle-benchmarks",
 ], check=True)
+
+# Initialize kaggle benchmarks credentials
+subprocess.run(["kaggle", "benchmarks", "init", "-y", "--env-file", f"{WORK}/.env.kaggle"],
+               capture_output=True, text=True)
+if os.path.exists(f"{WORK}/.env.kaggle"):
+    from dotenv import load_dotenv
+    load_dotenv(f"{WORK}/.env.kaggle")
+    print("Loaded kaggle benchmarks credentials")
+else:
+    print("WARNING: kaggle benchmarks init did not create .env.kaggle")
 
 if not os.path.exists(REPO):
     subprocess.run([
@@ -138,7 +148,7 @@ Compare the two responses on:
 First provide a brief explanation (2-3 sentences), then state your verdict.
 Output EXACTLY one of: [[A]], [[B]], or [[tie]]"""
 
-JUDGE_MODEL = "google/gemini-3.6-flash"
+JUDGE_MODEL = "google/gemini-3-flash-preview"
 BATCH_SIZE = 5
 SLEEP_SECONDS = 5
 MAX_RETRIES = 3
@@ -166,7 +176,9 @@ def parse_verdict(text):
 
 def run_judging(pairs_path, output_path, judge_model=JUDGE_MODEL):
     """Run pairwise judging with retries and checkpointing."""
-    import kaggle_benchmarks
+    import kaggle_benchmarks as kbench
+
+    judge = kbench.llms[judge_model]
 
     pairs = load_pairs(pairs_path)
     print(f"Loaded {len(pairs)} pairs from {pairs_path}")
@@ -199,9 +211,8 @@ def run_judging(pairs_path, output_path, judge_model=JUDGE_MODEL):
                         response_a=pair["response_a"],
                         response_b=pair["response_b"],
                     )
-                    response_text = kaggle_benchmarks.submit(
-                        model_name=judge_model, prompt=prompt,
-                    )
+                    with kbench.chats.new("judge"):
+                        response_text = judge.prompt(prompt)
                     verdict = parse_verdict(response_text)
                     winner = (pair["_model_a"] if verdict == "A"
                               else pair["_model_b"] if verdict == "B"
