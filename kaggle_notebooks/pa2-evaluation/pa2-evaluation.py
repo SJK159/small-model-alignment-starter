@@ -38,7 +38,15 @@ print("=" * 60)
 subprocess.run([
     sys.executable, "-m", "pip", "install", "-q",
     "transformers>=4.43.0,<5", "datasets>=2.18,<5",
-    "huggingface_hub", "tqdm", "kaggle-benchmarks",
+    "huggingface_hub", "tqdm",
+], check=True)
+subprocess.run([
+    sys.executable, "-m", "pip", "install", "-q",
+    "--upgrade", "protobuf",
+], check=True)
+subprocess.run([
+    sys.executable, "-m", "pip", "install", "-q",
+    "kaggle-benchmarks",
 ], check=True)
 
 # Initialize kaggle benchmarks credentials
