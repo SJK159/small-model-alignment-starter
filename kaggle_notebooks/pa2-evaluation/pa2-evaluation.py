@@ -38,43 +38,81 @@ if not os.path.exists(REPO):
 os.chdir(REPO)
 sys.path.insert(0, REPO)
 
-# Locate eval outputs from training notebook
-eval_dirs = {}
-for name in ["eval_ultrafeedback", "eval_hh_rlhf"]:
-    # Check multiple possible locations
-    for base in [TRAINING_INPUT, f"{TRAINING_INPUT}/outputs",
-                 f"{TRAINING_INPUT}/small-model-alignment-starter"]:
-        candidate = os.path.join(base, name)
-        if os.path.exists(candidate):
-            eval_dirs[name] = candidate
-            break
-    # Also check if the zip was extracted
-    if name not in eval_dirs:
-        for base in [TRAINING_INPUT]:
-            zip_path = os.path.join(base, "all_outputs.zip")
-            if os.path.exists(zip_path):
-                extract_dir = f"{WORK}/extracted"
-                os.makedirs(extract_dir, exist_ok=True)
-                subprocess.run(["unzip", "-qo", zip_path, "-d", extract_dir])
-                candidate = os.path.join(extract_dir, "kaggle/working/outputs", name)
-                if os.path.exists(candidate):
-                    eval_dirs[name] = candidate
-                    break
-
-print(f"Found eval directories: {eval_dirs}")
-
-# List what's available
+# List what's available in training input
 print("\nTraining input contents:")
-for root, dirs, files in os.walk(TRAINING_INPUT):
-    depth = root.replace(TRAINING_INPUT, "").count(os.sep)
-    if depth > 3:
-        continue
-    indent = "  " * depth
-    print(f"{indent}{os.path.basename(root)}/")
-    for f in files[:10]:
-        print(f"{indent}  {f}")
-    if len(files) > 10:
-        print(f"{indent}  ... and {len(files)-10} more")
+if os.path.exists(TRAINING_INPUT):
+    for root, dirs, files in os.walk(TRAINING_INPUT):
+        depth = root.replace(TRAINING_INPUT, "").count(os.sep)
+        if depth > 4:
+            dirs.clear()
+            continue
+        indent = "  " * depth
+        print(f"{indent}{os.path.basename(root)}/")
+        for f in files[:10]:
+            print(f"{indent}  {f}")
+        if len(files) > 10:
+            print(f"{indent}  ... and {len(files)-10} more")
+else:
+    print(f"  WARNING: {TRAINING_INPUT} does not exist!")
+    print("  Checking /kaggle/input/ contents:")
+    if os.path.exists("/kaggle/input"):
+        for item in os.listdir("/kaggle/input"):
+            print(f"    {item}/")
+            subpath = os.path.join("/kaggle/input", item)
+            if os.path.isdir(subpath):
+                for f in os.listdir(subpath)[:5]:
+                    print(f"      {f}")
+
+# Extract zip if present — try all zips in input
+extract_dir = f"{WORK}/extracted"
+for root, dirs, files in os.walk("/kaggle/input"):
+    for f in files:
+        if f.endswith(".zip"):
+            zip_path = os.path.join(root, f)
+            print(f"\nExtracting {zip_path}...")
+            os.makedirs(extract_dir, exist_ok=True)
+            subprocess.run(["unzip", "-qo", zip_path, "-d", extract_dir])
+    break  # only top-level
+
+if os.path.exists(extract_dir):
+    print("\nExtracted contents:")
+    for root, dirs, files in os.walk(extract_dir):
+        depth = root.replace(extract_dir, "").count(os.sep)
+        if depth > 4:
+            dirs.clear()
+            continue
+        indent = "  " * depth
+        print(f"{indent}{os.path.basename(root)}/")
+        for f in files[:5]:
+            print(f"{indent}  {f}")
+
+# Locate eval outputs — search broadly
+eval_dirs = {}
+search_roots = [
+    TRAINING_INPUT,
+    f"{TRAINING_INPUT}/outputs",
+    extract_dir,
+    f"{extract_dir}/outputs",
+    f"{extract_dir}/kaggle/working/outputs",
+]
+# Also add any subdirectory of /kaggle/input
+if os.path.exists("/kaggle/input"):
+    for item in os.listdir("/kaggle/input"):
+        p = os.path.join("/kaggle/input", item)
+        search_roots.append(p)
+        search_roots.append(os.path.join(p, "outputs"))
+
+for name in ["eval_ultrafeedback", "eval_hh_rlhf"]:
+    for base in search_roots:
+        candidate = os.path.join(base, name)
+        if os.path.exists(candidate) and os.path.isdir(candidate):
+            pairs_file = os.path.join(candidate, "dpo_vs_sft_pairs.jsonl")
+            if os.path.exists(pairs_file):
+                eval_dirs[name] = candidate
+                print(f"Found {name} at {candidate}")
+                break
+
+print(f"\nFinal eval directories: {eval_dirs}")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Task 7: Model-based evaluation
