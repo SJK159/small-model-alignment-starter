@@ -142,18 +142,59 @@ SLEEP_SECONDS = 5
 MAX_RETRIES = 3
 
 
-def get_genai_client():
-    """Get a google-genai client using Kaggle user secrets or env var."""
-    from google import genai
+def get_gemini_caller():
+    """Return a callable(model, prompt)->text using whichever Gemini SDK works.
 
+    Tries in order:
+    1. GOOGLE_API_KEY env var (local dev)
+    2. Kaggle user secret GOOGLE_API_KEY (Kaggle with add-on enabled)
+    3. google.generativeai (pre-installed on Kaggle, uses add-on key)
+    """
     api_key = os.environ.get("GOOGLE_API_KEY")
-    if not api_key:
-        from kaggle_secrets import UserSecretsClient
-        user_secrets = UserSecretsClient()
-        api_key = user_secrets.get_secret("GOOGLE_API_KEY")
 
-    client = genai.Client(api_key=api_key)
-    return client
+    if not api_key:
+        try:
+            from kaggle_secrets import UserSecretsClient
+            api_key = UserSecretsClient().get_secret("GOOGLE_API_KEY")
+        except Exception:
+            pass
+
+    # Try google-genai (new SDK)
+    if api_key:
+        try:
+            from google import genai
+            client = genai.Client(api_key=api_key)
+            def call_genai(model, prompt):
+                resp = client.models.generate_content(model=model, contents=prompt)
+                return resp.text
+            call_genai("gemini-2.0-flash", "Say hi")
+            print("Using google-genai SDK")
+            return call_genai
+        except Exception as e:
+            print(f"google-genai failed: {e}")
+
+    # Try google.generativeai (older SDK, pre-installed on Kaggle)
+    if api_key:
+        try:
+            import google.generativeai as palm
+            palm.configure(api_key=api_key)
+            def call_palm(model, prompt):
+                m = palm.GenerativeModel(model)
+                resp = m.generate_content(prompt)
+                return resp.text
+            call_palm("gemini-2.0-flash", "Say hi")
+            print("Using google.generativeai SDK")
+            return call_palm
+        except Exception as e:
+            print(f"google.generativeai failed: {e}")
+
+    raise RuntimeError(
+        "No Gemini API access. To fix:\n"
+        "  1. In Kaggle notebook editor, open the right sidebar\n"
+        "  2. Under 'Add-ons', enable 'Google AI Studio'\n"
+        "  3. Re-run the notebook\n"
+        "Or set GOOGLE_API_KEY env var for local runs."
+    )
 
 
 def load_pairs(path):
@@ -179,10 +220,9 @@ def parse_verdict(text):
 def run_judging(pairs_path, output_path, judge_model=JUDGE_MODEL):
     """Run pairwise judging with retries and checkpointing."""
     try:
-        client = get_genai_client()
-        print(f"Using google-genai with API key from Kaggle secrets")
+        call_llm = get_gemini_caller()
     except Exception as e:
-        print(f"Could not get API key from Kaggle secrets: {e}")
+        print(f"Could not set up Gemini API: {e}")
         print("Trying kaggle_benchmarks.submit() fallback...")
         return run_judging_benchmarks(pairs_path, output_path, judge_model)
 
@@ -216,11 +256,7 @@ def run_judging(pairs_path, output_path, judge_model=JUDGE_MODEL):
                         response_a=pair["response_a"],
                         response_b=pair["response_b"],
                     )
-                    response = client.models.generate_content(
-                        model=judge_model,
-                        contents=prompt,
-                    )
-                    response_text = response.text
+                    response_text = call_llm(judge_model, prompt)
                     verdict = parse_verdict(response_text)
                     winner = (pair["_model_a"] if verdict == "A"
                               else pair["_model_b"] if verdict == "B"
