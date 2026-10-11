@@ -1,10 +1,8 @@
 #!/usr/bin/env python
-"""PA2: Task 7 — Pairwise evaluation using Kaggle model-based judging.
+"""PA2: Task 7 — Pairwise evaluation using model-based judging.
 
-This notebook must be configured as a "utility benchmark" in Kaggle to access
-kaggle_benchmarks and model APIs like google/gemini-3.6-flash.
-
-Attach the training notebook output as an input dataset.
+Uses google-genai SDK (Gemini) for judge calls. Set GOOGLE_API_KEY env var
+or add it as a Kaggle user secret. Attach the training notebook output as input.
 """
 
 import subprocess, os, sys, time, json, traceback
@@ -38,26 +36,8 @@ print("=" * 60)
 subprocess.run([
     sys.executable, "-m", "pip", "install", "-q",
     "transformers>=4.43.0,<5", "datasets>=2.18,<5",
-    "huggingface_hub", "tqdm",
+    "huggingface_hub", "tqdm", "google-genai",
 ], check=True)
-subprocess.run([
-    sys.executable, "-m", "pip", "install", "-q",
-    "--upgrade", "protobuf",
-], check=True)
-subprocess.run([
-    sys.executable, "-m", "pip", "install", "-q",
-    "kaggle-benchmarks",
-], check=True)
-
-# Initialize kaggle benchmarks credentials
-subprocess.run(["kaggle", "benchmarks", "init", "-y", "--env-file", f"{WORK}/.env.kaggle"],
-               capture_output=True, text=True)
-if os.path.exists(f"{WORK}/.env.kaggle"):
-    from dotenv import load_dotenv
-    load_dotenv(f"{WORK}/.env.kaggle")
-    print("Loaded kaggle benchmarks credentials")
-else:
-    print("WARNING: kaggle benchmarks init did not create .env.kaggle")
 
 if not os.path.exists(REPO):
     subprocess.run([
@@ -156,10 +136,24 @@ Compare the two responses on:
 First provide a brief explanation (2-3 sentences), then state your verdict.
 Output EXACTLY one of: [[A]], [[B]], or [[tie]]"""
 
-JUDGE_MODEL = "google/gemini-3-flash-preview"
+JUDGE_MODEL = "gemini-2.0-flash"
 BATCH_SIZE = 5
 SLEEP_SECONDS = 5
 MAX_RETRIES = 3
+
+
+def get_genai_client():
+    """Get a google-genai client using Kaggle user secrets or env var."""
+    from google import genai
+
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        from kaggle_secrets import UserSecretsClient
+        user_secrets = UserSecretsClient()
+        api_key = user_secrets.get_secret("GOOGLE_API_KEY")
+
+    client = genai.Client(api_key=api_key)
+    return client
 
 
 def load_pairs(path):
@@ -184,14 +178,17 @@ def parse_verdict(text):
 
 def run_judging(pairs_path, output_path, judge_model=JUDGE_MODEL):
     """Run pairwise judging with retries and checkpointing."""
-    import kaggle_benchmarks as kbench
-
-    judge = kbench.llms[judge_model]
+    try:
+        client = get_genai_client()
+        print(f"Using google-genai with API key from Kaggle secrets")
+    except Exception as e:
+        print(f"Could not get API key from Kaggle secrets: {e}")
+        print("Trying kaggle_benchmarks.submit() fallback...")
+        return run_judging_benchmarks(pairs_path, output_path, judge_model)
 
     pairs = load_pairs(pairs_path)
     print(f"Loaded {len(pairs)} pairs from {pairs_path}")
 
-    # Resume from existing judgments
     existing = {}
     if os.path.exists(output_path):
         with open(output_path) as f:
@@ -219,8 +216,11 @@ def run_judging(pairs_path, output_path, judge_model=JUDGE_MODEL):
                         response_a=pair["response_a"],
                         response_b=pair["response_b"],
                     )
-                    with kbench.chats.new("judge"):
-                        response_text = judge.prompt(prompt)
+                    response = client.models.generate_content(
+                        model=judge_model,
+                        contents=prompt,
+                    )
+                    response_text = response.text
                     verdict = parse_verdict(response_text)
                     winner = (pair["_model_a"] if verdict == "A"
                               else pair["_model_b"] if verdict == "B"
@@ -249,6 +249,104 @@ def run_judging(pairs_path, output_path, judge_model=JUDGE_MODEL):
 
         done = len(results)
         print(f"  Progress: {done}/{len(pairs)} judged, {len(failures)} failures")
+        time.sleep(SLEEP_SECONDS)
+
+    # Save failures
+    if failures:
+        fail_path = output_path.replace(".jsonl", "_failures.jsonl")
+        with open(fail_path, "w") as f:
+            for entry in failures:
+                f.write(json.dumps(entry) + "\n")
+
+    # Summary
+    wins = {"sft": 0, "dpo": 0, "tie": 0, "unknown": 0}
+    for r in results.values():
+        w = r.get("winner", "unknown")
+        wins[w] = wins.get(w, 0) + 1
+
+    total_decided = wins.get("dpo", 0) + wins.get("sft", 0)
+    summary = {
+        "total_pairs": len(pairs),
+        "judged": len(results),
+        "failures": len(failures),
+        "wins": wins,
+        "dpo_win_rate_excl_ties": (wins["dpo"] / total_decided if total_decided > 0 else None),
+    }
+
+    summary_path = output_path.replace(".jsonl", "_summary.json")
+    with open(summary_path, "w") as f:
+        json.dump(summary, f, indent=2)
+
+    print(f"\n{'='*40}")
+    print(f"RESULTS ({os.path.basename(output_path)}):")
+    print(f"  DPO wins: {wins['dpo']}")
+    print(f"  SFT wins: {wins['sft']}")
+    print(f"  Ties:     {wins['tie']}")
+    print(f"  Unknown:  {wins['unknown']}")
+    if total_decided > 0:
+        print(f"  DPO win rate (excl. ties): {wins['dpo']/total_decided:.1%}")
+    print(f"{'='*40}")
+    return summary
+
+
+def run_judging_benchmarks(pairs_path, output_path, judge_model):
+    """Fallback: use kaggle_benchmarks.submit() if available."""
+    import kaggle_benchmarks
+
+    pairs = load_pairs(pairs_path)
+    print(f"Loaded {len(pairs)} pairs (benchmarks fallback)")
+
+    existing = {}
+    if os.path.exists(output_path):
+        with open(output_path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    entry = json.loads(line)
+                    existing[entry["id"]] = entry
+
+    remaining = [p for p in pairs if p["id"] not in existing]
+    results = dict(existing)
+    failures = []
+
+    for i in range(0, len(remaining), BATCH_SIZE):
+        batch = remaining[i : i + BATCH_SIZE]
+        for pair in batch:
+            success = False
+            for attempt in range(MAX_RETRIES):
+                try:
+                    prompt = JUDGE_PROMPT.format(
+                        instruction=pair["instruction"],
+                        response_a=pair["response_a"],
+                        response_b=pair["response_b"],
+                    )
+                    response_text = kaggle_benchmarks.submit(
+                        model_name=judge_model, prompt=prompt,
+                    )
+                    verdict = parse_verdict(response_text)
+                    winner = (pair["_model_a"] if verdict == "A"
+                              else pair["_model_b"] if verdict == "B"
+                              else verdict)
+                    results[pair["id"]] = {
+                        "id": pair["id"],
+                        "instruction": pair["instruction"],
+                        "verdict_raw": verdict,
+                        "winner": winner,
+                        "judge_response": response_text,
+                        "judge_model": judge_model,
+                    }
+                    success = True
+                    break
+                except Exception as e:
+                    print(f"  Retry {attempt+1}/{MAX_RETRIES}: {e}")
+                    time.sleep(SLEEP_SECONDS)
+            if not success:
+                failures.append({"id": pair["id"], "error": "max retries exceeded"})
+
+        with open(output_path, "w") as f:
+            for entry in results.values():
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        print(f"  Progress: {len(results)}/{len(pairs)}, {len(failures)} failures")
         time.sleep(SLEEP_SECONDS)
 
     # Save failures
