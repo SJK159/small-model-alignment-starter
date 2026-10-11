@@ -15,7 +15,18 @@ OUTPUTS = f"{WORK}/outputs"
 
 # The training notebook output is attached as an input
 # Kaggle mounts kernel outputs at /kaggle/input/<kernel-slug>/
-TRAINING_INPUT = "/kaggle/input/pa2-sft-dpo-training"
+TRAINING_INPUT_CANDIDATES = [
+    "/kaggle/input/pa2-sft-dpo-training",
+    "/kaggle/input/pa2-sft-dpo-training/outputs",
+]
+# Also discover dynamically from /kaggle/input
+import glob
+for p in glob.glob("/kaggle/input/**", recursive=False):
+    TRAINING_INPUT_CANDIDATES.append(p)
+for p in glob.glob("/kaggle/input/notebooks/**/*", recursive=True):
+    if os.path.isdir(p):
+        TRAINING_INPUT_CANDIDATES.append(p)
+TRAINING_INPUT = next((p for p in TRAINING_INPUT_CANDIDATES if os.path.exists(p)), "/kaggle/input/pa2-sft-dpo-training")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Setup
@@ -63,7 +74,7 @@ else:
                 for f in os.listdir(subpath)[:5]:
                     print(f"      {f}")
 
-# Extract zip if present — try all zips in input
+# Extract all zips found anywhere under /kaggle/input
 extract_dir = f"{WORK}/extracted"
 for root, dirs, files in os.walk("/kaggle/input"):
     for f in files:
@@ -72,45 +83,31 @@ for root, dirs, files in os.walk("/kaggle/input"):
             print(f"\nExtracting {zip_path}...")
             os.makedirs(extract_dir, exist_ok=True)
             subprocess.run(["unzip", "-qo", zip_path, "-d", extract_dir])
-    break  # only top-level
 
 if os.path.exists(extract_dir):
     print("\nExtracted contents:")
-    for root, dirs, files in os.walk(extract_dir):
-        depth = root.replace(extract_dir, "").count(os.sep)
-        if depth > 4:
-            dirs.clear()
+    for root2, dirs2, files2 in os.walk(extract_dir):
+        depth = root2.replace(extract_dir, "").count(os.sep)
+        if depth > 5:
+            dirs2.clear()
             continue
         indent = "  " * depth
-        print(f"{indent}{os.path.basename(root)}/")
-        for f in files[:5]:
+        print(f"{indent}{os.path.basename(root2)}/")
+        for f in files2[:5]:
             print(f"{indent}  {f}")
 
-# Locate eval outputs — search broadly
+# Locate eval outputs — use os.walk to find dpo_vs_sft_pairs.jsonl anywhere
 eval_dirs = {}
-search_roots = [
-    TRAINING_INPUT,
-    f"{TRAINING_INPUT}/outputs",
-    extract_dir,
-    f"{extract_dir}/outputs",
-    f"{extract_dir}/kaggle/working/outputs",
-]
-# Also add any subdirectory of /kaggle/input
-if os.path.exists("/kaggle/input"):
-    for item in os.listdir("/kaggle/input"):
-        p = os.path.join("/kaggle/input", item)
-        search_roots.append(p)
-        search_roots.append(os.path.join(p, "outputs"))
-
-for name in ["eval_ultrafeedback", "eval_hh_rlhf"]:
-    for base in search_roots:
-        candidate = os.path.join(base, name)
-        if os.path.exists(candidate) and os.path.isdir(candidate):
-            pairs_file = os.path.join(candidate, "dpo_vs_sft_pairs.jsonl")
-            if os.path.exists(pairs_file):
-                eval_dirs[name] = candidate
-                print(f"Found {name} at {candidate}")
-                break
+search_bases = ["/kaggle/input", extract_dir]
+for search_base in search_bases:
+    if not os.path.exists(search_base):
+        continue
+    for root, dirs, files in os.walk(search_base):
+        if "dpo_vs_sft_pairs.jsonl" in files:
+            dirname = os.path.basename(root)
+            if dirname in ("eval_ultrafeedback", "eval_hh_rlhf") and dirname not in eval_dirs:
+                eval_dirs[dirname] = root
+                print(f"Found {dirname} at {root}")
 
 print(f"\nFinal eval directories: {eval_dirs}")
 
