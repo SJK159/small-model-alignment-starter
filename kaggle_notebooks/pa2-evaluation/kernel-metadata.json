@@ -10,5 +10,5 @@
   "competition_sources": [],
   "dataset_sources": [],
   "kernel_sources": ["merc11123saad/pa2-sft-dpo-training"],
-  "model_sources": []
+  "model_sources": ["google/gemini-2.0-flash-api/Api/gemini-2.0-flash"]
 }

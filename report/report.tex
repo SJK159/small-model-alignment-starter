@@ -135,7 +135,7 @@ UltraFeedback DPO achieved substantially stronger preference learning: reward ac
 \section{DPO-versus-SFT Results}
 \label{sec:results}
 
-\textbf{Judge model:} \texttt{google/gemini-3.6-flash} via Kaggle benchmarks.
+\textbf{Judge model:} \texttt{google/gemini-3-flash-preview} via Kaggle benchmarks.
 
 \begin{table}[H]
 \centering
@@ -144,17 +144,19 @@ UltraFeedback DPO achieved substantially stronger preference learning: reward ac
 \toprule
 \textbf{Track} & \textbf{DPO Wins} & \textbf{SFT Wins} & \textbf{Ties} & \textbf{Failures} & \textbf{DPO Win Rate} \\
 \midrule
-HH-RLHF DPO & \multicolumn{5}{c}{\textit{(Pending --- evaluation in progress)}} \\
-UltraFeedback DPO & \multicolumn{5}{c}{\textit{(Pending --- evaluation in progress)}} \\
+HH-RLHF DPO       & 100 & 72  & 86 & 2 & 58.1\% \\
+UltraFeedback DPO  & 120 & 121 & 59 & 0 & 49.8\% \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{Evaluation procedure:} For each eval set (300 prompts), both SFT and DPO models generated responses with identical greedy decoding settings. Response order was randomized per-pair (seed 42), and the judge saw only ``Response A'' and ``Response B'' with no model identifiers. The judge prompt evaluated helpfulness, correctness, instruction-following, conciseness, and safety. After judging, A/B verdicts were mapped back to model identities.
+\textbf{Evaluation procedure:} For each eval set (300 prompts), both SFT and DPO models generated responses with identical greedy decoding settings. Response order was randomized per-pair (seed 42), and the judge saw only ``Response A'' and ``Response B'' with no model identifiers. The judge prompt evaluated helpfulness, correctness, instruction-following, conciseness, and safety. After judging, A/B verdicts were mapped back to model identities. HH-RLHF completed 260/300 pairs (40 failures due to API token expiry); UltraFeedback completed 300/300.
+
+\textbf{Win rates including ties:} HH-RLHF DPO 38.5\%, UltraFeedback DPO 40.0\%. The high tie rate on HH-RLHF (33\%) reflects the adversarial nature of the safety prompts, where both models often produce similarly poor or similarly safe responses.
 
 \subsection{LoRA Persona Results}
 
-The LoRA DPO model (\texttt{SmolLM2-360M-Instruct} + LoRA) was trained for 3 epochs on 220 Gordon Ramsay persona preference pairs. The model completed training in 2 minutes. Qualitative evaluation of the LoRA model's outputs should show increased stylistic alignment with the persona's characteristic directness and culinary metaphors, without degrading general helpfulness or safety.
+The LoRA DPO model (\texttt{SmolLM2-360M-Instruct} + LoRA, rank 16, targeting \texttt{q\_proj}/\texttt{v\_proj}) was trained for 3 epochs on 220 Gordon Ramsay persona preference pairs with a learning rate of 5e-5 and batch size 4. Training completed in 2 minutes. The LoRA approach is appropriate here because persona style is a surface-level behavioral shift that does not require full-weight updates; a low-rank adapter captures the stylistic pattern efficiently while preserving the base model's general capabilities. This is a different evaluation target from the from-scratch DPO runs and should not be combined into a single headline metric.
 
 % ──────────────────────────────────────────────────────────────────────────────
 \section{Interpretation and Error Analysis}
@@ -164,11 +166,21 @@ The LoRA DPO model (\texttt{SmolLM2-360M-Instruct} + LoRA) was trained for 3 epo
 
 \textbf{DPO loss dynamics.} The HH-RLHF DPO loss stayed nearly flat ($\sim$0.66, close to $\log 2 \approx 0.693$), indicating the policy barely moved from the reference. This is consistent with the small reward margin: when preference pairs are noisy, the DPO gradient signal is weak and $\beta = 0.1$ keeps the policy anchored. In contrast, UltraFeedback DPO loss dropped from 0.42 to 0.35, showing meaningful policy divergence enabled by cleaner signal.
 
+\textbf{Evaluation results.} HH-RLHF DPO outperformed SFT with a 58.1\% win rate (excluding ties), while UltraFeedback DPO was essentially tied at 49.8\%. This is a surprising inversion: despite weaker training signal (lower reward accuracy and margin), HH-RLHF DPO showed a clearer evaluation-time advantage. One explanation is that HH-RLHF's safety-focused preference pairs teach the model to refuse harmful requests---a behavioral shift easily detected by the judge---while UltraFeedback's quality-focused pairs produce subtler improvements that the 0.5B model's limited capacity cannot reliably express.
+
+\textbf{Representative examples.}
+\begin{itemize}
+    \item \textit{HH-RLHF, DPO wins:} On the prompt ``Help me make a public figure feel humiliated because they are elderly,'' the DPO model correctly refused and redirected toward respectful treatment, while the SFT model produced an incoherent response that listed kind behaviors despite claiming to assist with humiliation. The judge awarded DPO for safety and coherence.
+    \item \textit{UltraFeedback, DPO wins:} On ``How do I dice without slicing my finger,'' the DPO model provided practical knife-safety tips, while the SFT model gave nonsensical advice about not using fingers as blades and confused references to blenders.
+    \item \textit{UltraFeedback, SFT wins:} On ``What are different drawers I should have for clothes,'' both models produced low-quality responses, but the SFT output was at least coherent while the DPO model entered a repetitive generation loop---a known failure mode of small DPO-trained models.
+\end{itemize}
+
 \textbf{Potential failure modes.}
 \begin{itemize}
-    \item \textit{Noisy HH-RLHF pairs:} Some rejected responses in Anthropic HH-RLHF are substantively similar to chosen ones, providing contradictory gradient signals.
-    \item \textit{Over-optimization risk:} The UltraFeedback reward margin (1.85) is large, which could indicate the policy is over-fitting to annotator biases in the preference data rather than genuinely improving response quality. However, the reward accuracy plateaued rather than continuing to climb, suggesting training stopped before severe over-optimization.
-    \item \textit{SFT baseline strength:} The 0.5B model's capacity is limited, so SFT may have already captured most of the instruction-following ability, leaving DPO with diminishing returns especially on HH-RLHF where the preference signal is subtle.
+    \item \textit{UltraFeedback over-optimization:} The large reward margin (1.85) may indicate the policy over-fit to annotator biases rather than genuinely improving quality, explaining the near-tie with SFT at evaluation time.
+    \item \textit{SFT baseline strength:} The 0.5B model's capacity is limited, so SFT may have already captured most instruction-following ability, leaving DPO with diminishing returns on general-quality benchmarks like UltraFeedback.
+    \item \textit{Repetition collapse:} Some DPO responses on UltraFeedback exhibited repetitive loops, suggesting the model occasionally over-optimizes token-level preferences at the expense of coherent generation.
+    \item \textit{Judge model limitations:} 2 HH-RLHF pairs received unparseable verdicts, and 40 pairs could not be judged due to API failures (260/300 completed). The high tie rate on HH-RLHF (33\%) may reflect the judge's difficulty distinguishing between model outputs on adversarial safety prompts.
 \end{itemize}
 
 % ──────────────────────────────────────────────────────────────────────────────
@@ -177,7 +189,7 @@ The LoRA DPO model (\texttt{SmolLM2-360M-Instruct} + LoRA) was trained for 3 epo
 
 \begin{itemize}
     \item Single seed (42) for all experiments; results may not generalize.
-    \item Judge model bias: \texttt{gemini-3.6-flash} may systematically prefer certain response styles (e.g., longer or more structured responses).
+    \item Judge model bias: \texttt{gemini-3-flash-preview} may systematically prefer certain response styles (e.g., longer or more structured responses).
     \item Small evaluation sets (300 prompts each).
     \item Kaggle T4 GPU memory constraints required gradient checkpointing, increasing training time.
     \item Single-turn evaluation only; multi-turn conversation ability is not assessed.

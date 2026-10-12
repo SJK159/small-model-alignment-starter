@@ -1,0 +1,26 @@
+{
+  "eval_ultrafeedback": {
+    "total_pairs": 300,
+    "judged": 300,
+    "failures": 0,
+    "wins": {
+      "sft": 121,
+      "dpo": 120,
+      "tie": 59,
+      "unknown": 0
+    },
+    "dpo_win_rate_excl_ties": 0.4979253112033195
+  },
+  "eval_hh_rlhf": {
+    "total_pairs": 300,
+    "judged": 260,
+    "failures": 40,
+    "wins": {
+      "sft": 72,
+      "dpo": 100,
+      "tie": 86,
+      "unknown": 2
+    },
+    "dpo_win_rate_excl_ties": 0.5813953488372093
+  }
+}

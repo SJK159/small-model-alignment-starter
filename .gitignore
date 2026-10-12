@@ -1,2 +1,7 @@
 __pycache__/
 *.py[cod]
+.env*
+.omc/
+example_task.py
+kaggle_benchmarks_reference.md
+.venv/
